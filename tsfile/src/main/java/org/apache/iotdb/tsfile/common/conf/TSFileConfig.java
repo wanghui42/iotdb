@@ -79,7 +79,7 @@ public class TSFileConfig implements Serializable {
   /** The maximum degree of a metadataIndex node, default value is 256 */
   private int maxDegreeOfIndexNode = 256;
   /** The type of MetadataIndex */
-  private MetadataIndexType metadataIndexType = MetadataIndexType.TWO_LEVEL;
+  private MetadataIndexType metadataIndexType = MetadataIndexType.B_PLUS_TREE;
   /** Data type for input timestamp, TsFile supports INT64. */
   private TSDataType timeSeriesDataType = TSDataType.INT64;
   /** Max length limitation of input string. */

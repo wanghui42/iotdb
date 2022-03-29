@@ -696,7 +696,7 @@ public class TsFileSequenceReader implements AutoCloseable {
       if (metadataIndexNode.getNodeType().equals(MetadataIndexNodeType.LEAF_DEVICE)) {
         deviceList.addAll(
             metadataIndexNode.getChildren().stream()
-                    .map(x -> x.getName().intern())
+                .map(x -> x.getName().intern())
                 .collect(Collectors.toList()));
         return deviceList;
       }
@@ -739,6 +739,8 @@ public class TsFileSequenceReader implements AutoCloseable {
   }
 
   /**
+   * FIXME used in compaction model, should add judgement of TWO_LEVEL_INDEX and B_PLUS_TREE_INDEX
+   *
    * @return an iterator of "device, isAligned" list, in which names of devices are ordered in
    *     dictionary order, and isAligned represents whether the device is aligned
    */
@@ -1086,9 +1088,10 @@ public class TsFileSequenceReader implements AutoCloseable {
             timeseriesMetadataList.add(
                 TimeseriesMetadata.deserializeFrom(buffer, needChunkMetadata));
           }
+          String path = entry.getName();
           timeseriesMetadataMap
               .computeIfAbsent(
-                  entry.getName().split(TsFileConstant.PATH_SEPARATER_NO_REGEX)[0],
+                  path.substring(0, path.lastIndexOf(TsFileConstant.PATH_SEPARATOR)),
                   k -> new ArrayList<>())
               .addAll(timeseriesMetadataList);
         }
@@ -1959,6 +1962,7 @@ public class TsFileSequenceReader implements AutoCloseable {
   }
 
   /**
+   * FIXME used in aligned timeseries, should add judgement of TWO_LEVEL_INDEX and B_PLUS_TREE_INDEX
    * Get AlignedChunkMetadata of sensors under one device
    *
    * @param device device name
@@ -2167,6 +2171,8 @@ public class TsFileSequenceReader implements AutoCloseable {
   }
 
   /**
+   * FIXME used in compaction model, should add judgement of TWO_LEVEL_INDEX and B_PLUS_TREE_INDEX
+   *
    * @return An iterator of linked hashmaps ( measurement -> chunk metadata list ). When traversing
    *     the linked hashmap, you will get chunk metadata lists according to the lexicographic order
    *     of the measurements. The first measurement of the linked hashmap of each iteration is

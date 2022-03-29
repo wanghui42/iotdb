@@ -39,12 +39,16 @@ import org.junit.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.fail;
 
 public class TsFileSelfCheckToolTest {
 
@@ -144,8 +148,7 @@ public class TsFileSelfCheckToolTest {
   }
 
   @Test
-  public void tsFileSelfCheckToolWithStatisticsModifiedTest()
-      throws IOException, TsFileTimeseriesMetadataException, Exception {
+  public void tsFileSelfCheckToolWithStatisticsModifiedTest() throws Exception {
     String fileName = "1-0-0-2.tsfile";
     String filePath = path.concat(fileName);
     setUp(filePath);
@@ -153,7 +156,7 @@ public class TsFileSelfCheckToolTest {
         new TsFileSelfCheckTool().getTimeseriesMetadataMapWithPath(filePath);
     for (Map.Entry<Long, Pair<Path, TimeseriesMetadata>> entry : timeseriesMetadataMap.entrySet()) {
       TimeseriesMetadata timeseriesMetadata = entry.getValue().right;
-      Long pos = entry.getKey();
+      long pos = entry.getKey();
       LongStatistics statistics = (LongStatistics) timeseriesMetadata.getStatistics();
       statistics.initializeStats(666, 1999999, 1000000, 1999999, 0);
 
@@ -200,7 +203,7 @@ public class TsFileSelfCheckToolTest {
   }
 
   @Test
-  public void tsFileSelfCheckToolWithRandomModifiedTest() throws IOException, Exception {
+  public void tsFileSelfCheckToolWithRandomModifiedTest() throws Exception {
 
     String fileName = "1-0-0-3.tsfile";
     String filePath = path.concat(fileName);
