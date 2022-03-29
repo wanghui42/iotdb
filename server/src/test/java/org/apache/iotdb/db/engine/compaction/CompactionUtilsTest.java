@@ -42,6 +42,7 @@ import org.apache.iotdb.tsfile.write.schema.IMeasurementSchema;
 import org.apache.iotdb.tsfile.write.schema.MeasurementSchema;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -80,7 +81,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   /* Total 5 seq files, each file has the same 6 nonAligned timeseries, each timeseries has the same 100 data point.*/
   @Test
   public void testSeqInnerSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, false);
     createFiles(5, 2, 3, 100, 0, 0, 50, 50, false, true);
 
@@ -113,7 +115,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(seqResources, true);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     tsFilesReader =
@@ -143,15 +145,17 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   Total 6 seq files, each file has different nonAligned timeseries.
   First and Second file: d0 ~ d1 and s0 ~ s2, time range is 0 ~ 99 and 150 ~ 249, value range is  0 ~ 99 and 150 ~ 249.
   Third and Forth file: d0 ~ d2 and s0 ~ s4, time range is 250 ~ 299 and 350 ~ 399, value range is 250 ~ 299 and 350 ~ 399.
-  Fifth and Sixth file: d0 ~ d4 and s0 ~ s4, time range is 600 ~ 649 and 700 ~ 749, value range is 800 ~ 849 and 900 ~ 949.
+  Fifth and Sixth file: d0 ~ d4 and s0 ~ s5, time range is 600 ~ 649 and 700 ~ 749, value range is 800 ~ 849 and 900 ~ 949.
+  Timeseries d[0-4].s5 are deleted before compaction.
   */
   @Test
   public void testSeqInnerSpaceCompactionWithDifferentTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(5, 5, false);
     createFiles(2, 2, 3, 100, 0, 0, 50, 50, false, true);
     createFiles(2, 3, 5, 50, 250, 250, 50, 50, false, true);
-    createFiles(2, 5, 5, 50, 600, 800, 50, 50, false, true);
+    createFiles(2, 5, 6, 50, 600, 800, 50, 50, false, true);
 
     for (int i = 0; i < 5; i++) {
       for (int j = 0; j < 5; j++) {
@@ -196,7 +200,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(seqResources, true);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 5; i++) {
@@ -246,7 +250,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   /* Total 5 unseq files, each file has the same 6 nonAligned timeseries, each timeseries has the same 100 data point.*/
   @Test
   public void testUnSeqInnerSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, false);
     createFiles(5, 2, 3, 100, 0, 0, 50, 50, false, false);
 
@@ -283,7 +288,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 2; i++) {
@@ -328,7 +333,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testUnSeqInnerSpaceCompactionWithDifferentTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(9, 9, false);
     createFiles(2, 2, 3, 100, 0, 0, 50, 50, false, false);
     createFiles(2, 3, 5, 50, 150, 150, 50, 50, false, false);
@@ -387,7 +393,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 9; i++) {
@@ -449,7 +455,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testUnSeqInnerSpaceCompactionWithAllDataDeletedInTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, false);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, false, false);
@@ -521,7 +528,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 5; i++) {
@@ -580,7 +587,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testUnSeqInnerSpaceCompactionWithAllDataDeletedInDevice()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, false);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, false, false);
@@ -645,7 +653,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 5; i++) {
@@ -704,7 +712,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testUnSeqInnerSpaceCompactionWithAllDataDeletedInTargetFile()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, false);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, false, false);
@@ -755,7 +764,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = 0; i < 5; i++) {
@@ -792,7 +801,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   /* Total 5 seq files, each file has the same 6 aligned timeseries, each timeseries has the same 100 data point.*/
   @Test
   public void testAlignedSeqInnerSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, true);
     createFiles(5, 2, 3, 100, 0, 0, 50, 50, true, true);
 
@@ -834,7 +844,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(seqResources, true);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -879,16 +889,18 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   Total 6 seq files, each file has different aligned timeseries, which cause empty page.
   First and Second file: d0 ~ d1 and s0 ~ s2, time range is 0 ~ 99 and 150 ~ 249, value range is  0 ~ 99 and 150 ~ 249.
   Third and Forth file: d0 ~ d2 and s0 ~ s4, time range is 250 ~ 299 and 350 ~ 399, value range is 250 ~ 299 and 350 ~ 399.
-  Fifth and Sixth file: d0 ~ d4 and s0 ~ s6, time range is 600 ~ 649 and 700 ~ 749, value range is 800 ~ 849 and 900 ~ 949.
+  Fifth and Sixth file: d0 ~ d4 and s0 ~ s7, time range is 600 ~ 649 and 700 ~ 749, value range is 800 ~ 849 and 900 ~ 949.
+  Timeseries d[0-4].s7 are deleted before compaction.
   */
   @Test
   public void testAlignedSeqInnerSpaceCompactionWithDifferentTimeseriesAndEmptyPage()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(50);
     registerTimeseriesInMManger(5, 7, true);
     createFiles(2, 2, 3, 100, 0, 0, 50, 50, true, true);
     createFiles(2, 3, 5, 50, 250, 250, 50, 50, true, true);
-    createFiles(2, 5, 7, 50, 600, 800, 50, 50, true, true);
+    createFiles(2, 5, 8, 50, 600, 800, 50, 50, true, true);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
         i < TsFileGeneratorUtils.getAlignDeviceOffset() + 5;
@@ -940,7 +952,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(seqResources, true);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1001,7 +1013,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testAlignedSeqInnerSpaceCompactionWithDifferentTimeseriesAndEmptyChunk()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(5, 7, true);
     createFiles(2, 2, 3, 100, 0, 0, 50, 50, true, true);
     createFiles(2, 3, 5, 50, 250, 250, 50, 50, true, true);
@@ -1057,7 +1070,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(seqResources, true);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1118,7 +1131,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testAlignedUnSeqInnerSpaceCompactionWithEmptyChunkAndEmptyPage()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, true);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, true, false);
@@ -1180,7 +1194,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1247,7 +1261,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testAlignedUnSeqInnerSpaceCompactionWithAllDataDeletedInTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, true);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, true, false);
@@ -1352,7 +1367,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1424,7 +1439,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   */
   @Test
   public void testAlignedUnSeqInnerSpaceCompactionWithAllDataDeletedInDevice()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(5, 7, true);
     createFiles(2, 2, 3, 300, 0, 0, 0, 0, true, false);
@@ -1505,7 +1521,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1568,7 +1584,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
   /* Total 5 files, each file has the same 6 aligned timeseries, each timeseries has the same 100 data point.*/
   @Test
   public void testAlignedUnSeqInnerSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, true);
     createFiles(5, 2, 3, 100, 0, 0, 50, 50, true, false);
 
@@ -1610,7 +1627,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     }
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getInnerCompactionTargetTsFileResources(unseqResources, false);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, true, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -1663,7 +1680,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, false);
     createFiles(5, 2, 3, 100, 0, 0, 0, 0, false, true);
     createFiles(5, 2, 3, 50, 0, 10000, 50, 50, false, false);
@@ -1702,7 +1720,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     tsFilesReader =
@@ -1750,7 +1768,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithDifferentTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, false);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
@@ -1814,11 +1833,16 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
+
+    Map<String, Long> measurementMaxTime = new HashMap<>();
 
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 5; j++) {
+        measurementMaxTime.putIfAbsent(
+            COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+            Long.MIN_VALUE);
         PartialPath path =
             new MeasurementPath(
                 COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
@@ -1838,6 +1862,14 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
         while (tsFilesReader.hasNextBatch()) {
           BatchData batchData = tsFilesReader.nextBatch();
           while (batchData.hasCurrent()) {
+            if (measurementMaxTime.get(
+                    COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j)
+                >= batchData.currentTime()) {
+              Assert.fail();
+            }
+            measurementMaxTime.put(
+                COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+                batchData.currentTime());
             if (i == 0
                 && ((450 <= batchData.currentTime() && batchData.currentTime() < 550)
                     || (550 <= batchData.currentTime() && batchData.currentTime() < 650))) {
@@ -1891,7 +1923,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithAllDataDeletedInTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, false);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
@@ -1966,11 +1999,15 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
+    Map<String, Long> measurementMaxTime = new HashMap<>();
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 5; j++) {
+        measurementMaxTime.putIfAbsent(
+            COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+            Long.MIN_VALUE);
         PartialPath path =
             new MeasurementPath(
                 COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
@@ -1990,6 +2027,14 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
         while (tsFilesReader.hasNextBatch()) {
           BatchData batchData = tsFilesReader.nextBatch();
           while (batchData.hasCurrent()) {
+            if (measurementMaxTime.get(
+                    COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j)
+                >= batchData.currentTime()) {
+              Assert.fail();
+            }
+            measurementMaxTime.put(
+                COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+                batchData.currentTime());
             if (i == 0
                 && ((450 <= batchData.currentTime() && batchData.currentTime() < 550)
                     || (550 <= batchData.currentTime() && batchData.currentTime() < 650))) {
@@ -2045,7 +2090,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithAllDataDeletedInDevice()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, false);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
@@ -2116,11 +2162,15 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
+    Map<String, Long> measurementMaxTime = new HashMap<>();
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 5; j++) {
+        measurementMaxTime.putIfAbsent(
+            COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+            Long.MIN_VALUE);
         PartialPath path =
             new MeasurementPath(
                 COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
@@ -2140,6 +2190,14 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
         while (tsFilesReader.hasNextBatch()) {
           BatchData batchData = tsFilesReader.nextBatch();
           while (batchData.hasCurrent()) {
+            if (measurementMaxTime.get(
+                    COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j)
+                >= batchData.currentTime()) {
+              Assert.fail();
+            }
+            measurementMaxTime.put(
+                COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+                batchData.currentTime());
             if (i == 0
                 && ((450 <= batchData.currentTime() && batchData.currentTime() < 550)
                     || (550 <= batchData.currentTime() && batchData.currentTime() < 650))) {
@@ -2192,7 +2250,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithAllDataDeletedInOneTargetFile()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, false);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
@@ -2258,11 +2317,15 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
+    Map<String, Long> measurementMaxTime = new HashMap<>();
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 5; j++) {
+        measurementMaxTime.putIfAbsent(
+            COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+            Long.MIN_VALUE);
         PartialPath path =
             new MeasurementPath(
                 COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
@@ -2282,6 +2345,14 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
         while (tsFilesReader.hasNextBatch()) {
           BatchData batchData = tsFilesReader.nextBatch();
           while (batchData.hasCurrent()) {
+            if (measurementMaxTime.get(
+                    COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j)
+                >= batchData.currentTime()) {
+              Assert.fail();
+            }
+            measurementMaxTime.put(
+                COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+                batchData.currentTime());
             if (i == 0
                 && ((450 <= batchData.currentTime() && batchData.currentTime() < 550)
                     || (550 <= batchData.currentTime() && batchData.currentTime() < 650))) {
@@ -2327,7 +2398,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testCrossSpaceCompactionWithAllDataDeletedInDeviceInSeqFiles()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, false);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
@@ -2402,11 +2474,15 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
+    Map<String, Long> measurementMaxTime = new HashMap<>();
     for (int i = 0; i < 4; i++) {
       for (int j = 0; j < 5; j++) {
+        measurementMaxTime.putIfAbsent(
+            COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+            Long.MIN_VALUE);
         PartialPath path =
             new MeasurementPath(
                 COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
@@ -2426,6 +2502,14 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
         while (tsFilesReader.hasNextBatch()) {
           BatchData batchData = tsFilesReader.nextBatch();
           while (batchData.hasCurrent()) {
+            if (measurementMaxTime.get(
+                    COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j)
+                >= batchData.currentTime()) {
+              Assert.fail();
+            }
+            measurementMaxTime.put(
+                COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i + PATH_SEPARATOR + "s" + j,
+                batchData.currentTime());
             if (i == 0
                 && ((450 <= batchData.currentTime() && batchData.currentTime() < 550)
                     || (550 <= batchData.currentTime() && batchData.currentTime() < 650))) {
@@ -2474,7 +2558,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testAlignedCrossSpaceCompactionWithSameTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     registerTimeseriesInMManger(2, 3, true);
     createFiles(5, 2, 3, 100, 0, 0, 0, 0, true, true);
     createFiles(5, 2, 3, 50, 0, 10000, 50, 50, true, false);
@@ -2518,7 +2603,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     tsFilesReader =
@@ -2570,7 +2655,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testAlignedCrossSpaceCompactionWithDifferentTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, true);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, true, true);
@@ -2644,7 +2730,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -2731,7 +2817,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testAlignedCrossSpaceCompactionWithAllDataDeletedInTimeseries()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, true);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, true, true);
@@ -2843,7 +2930,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -2935,7 +3022,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testAlignedCrossSpaceCompactionWithAllDataDeletedInOneTargetFile()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, true);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, true, true);
@@ -3048,7 +3136,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -3140,7 +3228,8 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
    */
   @Test
   public void testAlignedCrossSpaceCompactionWithFileTimeIndexResource()
-      throws IOException, WriteProcessException, MetadataException, StorageEngineException {
+      throws IOException, WriteProcessException, MetadataException, StorageEngineException,
+          InterruptedException {
     TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
     registerTimeseriesInMManger(4, 5, true);
     createFiles(2, 2, 3, 300, 0, 0, 50, 50, true, true);
@@ -3180,10 +3269,10 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
     generateModsFile(seriesPaths, unseqResources, Long.MIN_VALUE, Long.MAX_VALUE);
 
     for (TsFileResource resource : seqResources) {
-      resource.setTimeIndexType((byte) 0);
+      resource.setTimeIndexType((byte) 2);
     }
     for (TsFileResource resource : unseqResources) {
-      resource.setTimeIndexType((byte) 0);
+      resource.setTimeIndexType((byte) 2);
     }
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -3257,7 +3346,7 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
 
     List<TsFileResource> targetResources =
         CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
-    CompactionUtils.compact(seqResources, unseqResources, targetResources, COMPACTION_TEST_SG);
+    CompactionUtils.compact(seqResources, unseqResources, targetResources);
     CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
 
     for (int i = TsFileGeneratorUtils.getAlignDeviceOffset();
@@ -3327,6 +3416,91 @@ public class CompactionUtilsTest extends AbstractCompactionTest {
           assertEquals(600, count);
         }
       }
+    }
+  }
+
+  @Test
+  public void testCrossSpaceCompactionWithNewDeviceInUnseqFile() {
+    TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
+    try {
+      registerTimeseriesInMManger(6, 6, false);
+      createFiles(2, 2, 3, 300, 0, 0, 50, 50, false, true);
+      createFiles(2, 4, 5, 300, 700, 700, 50, 50, false, true);
+      createFiles(3, 6, 6, 200, 20, 10020, 30, 30, false, false);
+      createFiles(2, 1, 5, 100, 450, 20450, 0, 0, false, false);
+
+      List<TsFileResource> targetResources =
+          CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
+      CompactionUtils.compact(seqResources, unseqResources, targetResources);
+      CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
+    } catch (MetadataException
+        | IOException
+        | WriteProcessException
+        | StorageEngineException
+        | InterruptedException e) {
+      e.printStackTrace();
+      Assert.fail();
+    }
+  }
+
+  @Test
+  public void testCrossSpaceCompactionWithDeviceMaxTimeLaterInUnseqFile() {
+    TSFileDescriptor.getInstance().getConfig().setMaxNumberOfPointsInPage(30);
+    try {
+      registerTimeseriesInMManger(6, 6, false);
+      createFiles(2, 2, 3, 200, 0, 0, 0, 0, false, true);
+      createFiles(3, 4, 4, 300, 20, 10020, 0, 0, false, false);
+
+      List<TsFileResource> targetResources =
+          CompactionFileGeneratorUtils.getCrossCompactionTargetTsFileResources(seqResources);
+      CompactionUtils.compact(seqResources, unseqResources, targetResources);
+      CompactionUtils.moveTargetFile(targetResources, false, COMPACTION_TEST_SG);
+
+      for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+          PartialPath path =
+              new MeasurementPath(
+                  COMPACTION_TEST_SG + PATH_SEPARATOR + "d" + i,
+                  "s" + j,
+                  new MeasurementSchema("s" + j, TSDataType.INT64));
+          IBatchReader tsFilesReader =
+              new SeriesRawDataBatchReader(
+                  path,
+                  TSDataType.INT64,
+                  EnvironmentUtils.TEST_QUERY_CONTEXT,
+                  targetResources,
+                  new ArrayList<>(),
+                  null,
+                  null,
+                  true);
+          int count = 0;
+          while (tsFilesReader.hasNextBatch()) {
+            BatchData batchData = tsFilesReader.nextBatch();
+            while (batchData.hasCurrent()) {
+              if (batchData.currentTime() < 20) {
+                assertEquals(batchData.currentTime(), batchData.currentValue());
+              } else {
+                assertEquals(batchData.currentTime() + 10000, batchData.currentValue());
+              }
+              count++;
+              batchData.next();
+            }
+          }
+          tsFilesReader.close();
+          if (i < 2 && j < 3) {
+            assertEquals(920, count);
+          } else {
+            assertEquals(900, count);
+          }
+        }
+      }
+    } catch (MetadataException
+        | IOException
+        | WriteProcessException
+        | StorageEngineException
+        | InterruptedException e) {
+      e.printStackTrace();
+      Assert.fail();
     }
   }
 

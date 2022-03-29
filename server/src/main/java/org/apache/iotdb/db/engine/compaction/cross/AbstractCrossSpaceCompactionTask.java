@@ -47,6 +47,12 @@ public abstract class AbstractCrossSpaceCompactionTask extends AbstractCompactio
     this.selectedUnsequenceFiles = null;
   }
 
+  @Override
+  public void setSourceFilesToCompactionCandidate() {
+    this.selectedSequenceFiles.forEach(x -> x.setCompactionCandidate(true));
+    this.selectedUnsequenceFiles.forEach(x -> x.setCompactionCandidate(true));
+  }
+
   public List<TsFileResource> getSelectedSequenceFiles() {
     return selectedSequenceFiles;
   }
@@ -58,23 +64,25 @@ public abstract class AbstractCrossSpaceCompactionTask extends AbstractCompactio
   @Override
   public boolean checkValidAndSetMerging() {
     for (TsFileResource resource : selectedSequenceFiles) {
-      if (resource.isMerging() || !resource.isClosed() || !resource.getTsFile().exists()) {
+      if (resource.isCompacting() || !resource.isClosed() || !resource.getTsFile().exists()) {
         return false;
       }
     }
 
     for (TsFileResource resource : selectedUnsequenceFiles) {
-      if (resource.isMerging() || !resource.isClosed() || !resource.getTsFile().exists()) {
+      if (resource.isCompacting() || !resource.isClosed() || !resource.getTsFile().exists()) {
         return false;
       }
     }
 
     for (TsFileResource resource : selectedSequenceFiles) {
-      resource.setMerging(true);
+      resource.setCompacting(true);
+      resource.setCompactionCandidate(false);
     }
 
     for (TsFileResource resource : selectedUnsequenceFiles) {
-      resource.setMerging(true);
+      resource.setCompacting(true);
+      resource.setCompactionCandidate(false);
     }
 
     return true;
@@ -86,10 +94,16 @@ public abstract class AbstractCrossSpaceCompactionTask extends AbstractCompactio
         .append(fullStorageGroupName)
         .append("-")
         .append(timePartition)
-        .append(" task seq file num is ")
-        .append(selectedSequenceFiles.size())
-        .append(" , unseq file num is ")
-        .append(selectedUnsequenceFiles.size())
+        .append(" task seq files are ")
+        .append(selectedSequenceFiles.toString())
+        .append(" , unseq files are ")
+        .append(selectedUnsequenceFiles.toString())
         .toString();
+  }
+
+  @Override
+  public void resetCompactionCandidateStatusForAllSourceFiles() {
+    selectedSequenceFiles.forEach(x -> x.setCompactionCandidate(false));
+    selectedUnsequenceFiles.forEach(x -> x.setCompactionCandidate(false));
   }
 }

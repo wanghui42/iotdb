@@ -23,6 +23,7 @@ import org.apache.iotdb.db.auth.AuthorityChecker;
 import org.apache.iotdb.db.auth.authorizer.BasicAuthorizer;
 import org.apache.iotdb.db.auth.authorizer.IAuthorizer;
 import org.apache.iotdb.db.auth.entity.PathPrivilege;
+import org.apache.iotdb.db.auth.entity.PrivilegeType;
 import org.apache.iotdb.db.auth.entity.Role;
 import org.apache.iotdb.db.auth.entity.User;
 import org.apache.iotdb.db.concurrent.IoTDBThreadPoolFactory;
@@ -113,6 +114,9 @@ import org.apache.iotdb.db.qp.physical.sys.ShowChildPathsPlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowDevicesPlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowFunctionsPlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowLockInfoPlan;
+import org.apache.iotdb.db.qp.physical.sys.ShowNodesInTemplatePlan;
+import org.apache.iotdb.db.qp.physical.sys.ShowPathsSetTemplatePlan;
+import org.apache.iotdb.db.qp.physical.sys.ShowPathsUsingTemplatePlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowPlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowStorageGroupPlan;
 import org.apache.iotdb.db.qp.physical.sys.ShowTTLPlan;
@@ -121,6 +125,8 @@ import org.apache.iotdb.db.qp.physical.sys.StartTriggerPlan;
 import org.apache.iotdb.db.qp.physical.sys.StopTriggerPlan;
 import org.apache.iotdb.db.qp.physical.sys.UnsetTemplatePlan;
 import org.apache.iotdb.db.query.context.QueryContext;
+import org.apache.iotdb.db.query.control.FileReaderManager;
+import org.apache.iotdb.db.query.control.QueryResourceManager;
 import org.apache.iotdb.db.query.control.QueryTimeManager;
 import org.apache.iotdb.db.query.dataset.AlignByDeviceDataSet;
 import org.apache.iotdb.db.query.dataset.ListDataSet;
@@ -172,6 +178,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -199,7 +206,11 @@ import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_ITEM;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_LOCK_INFO;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_PRIVILEGE;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_ROLE;
+import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_SCHEMA_TEMPLATE;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_STORAGE_GROUP;
+import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_TIMESERIES_COMPRESSION;
+import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_TIMESERIES_DATATYPE;
+import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_TIMESERIES_ENCODING;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_TTL;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_USER;
 import static org.apache.iotdb.db.conf.IoTDBConstant.COLUMN_VALUE;
@@ -220,6 +231,7 @@ public class PlanExecutor implements IPlanExecutor {
   private static final Logger logger = LoggerFactory.getLogger(PlanExecutor.class);
   private static final Logger AUDIT_LOGGER =
       LoggerFactory.getLogger(IoTDBConstant.AUDIT_LOGGER_NAME);
+  private static final Logger DEBUG_LOGGER = LoggerFactory.getLogger("QUERY_DEBUG");
   // for data query
   protected IQueryRouter queryRouter;
   // for administration
@@ -387,9 +399,11 @@ public class PlanExecutor implements IPlanExecutor {
       case SETTLE:
         settle((SettlePlan) plan);
         return true;
+      case SHOW_QUERY_RESOURCE:
+        return processShowQueryResource();
       default:
         throw new UnsupportedOperationException(
-            String.format("operation %s is not supported", plan.getOperatorType()));
+            String.format("operation %s is not supported", plan.getOperatorName()));
     }
   }
 
@@ -631,7 +645,8 @@ public class PlanExecutor implements IPlanExecutor {
   }
 
   protected AlignByDeviceDataSet getAlignByDeviceDataSet(
-      AlignByDevicePlan plan, QueryContext context, IQueryRouter router) {
+      AlignByDevicePlan plan, QueryContext context, IQueryRouter router)
+      throws QueryProcessException {
     return new AlignByDeviceDataSet(plan, context, router);
   }
 
@@ -674,6 +689,14 @@ public class PlanExecutor implements IPlanExecutor {
         return processShowTriggers();
       case CONTINUOUS_QUERY:
         return processShowContinuousQueries();
+      case SCHEMA_TEMPLATE:
+        return processShowSchemaTemplates();
+      case NODES_IN_SCHEMA_TEMPLATE:
+        return processShowNodesInSchemaTemplate((ShowNodesInTemplatePlan) showPlan);
+      case PATHS_SET_SCHEMA_TEMPLATE:
+        return processShowPathsSetSchemaTemplate((ShowPathsSetTemplatePlan) showPlan);
+      case PATHS_USING_SCHEMA_TEMPLATE:
+        return processShowPathsUsingSchemaTemplate((ShowPathsUsingTemplatePlan) showPlan);
       default:
         throw new QueryProcessException(String.format("Unrecognized show plan %s", showPlan));
     }
@@ -1063,6 +1086,89 @@ public class PlanExecutor implements IPlanExecutor {
       listDataSet.putRecord(record);
     }
 
+    return listDataSet;
+  }
+
+  private QueryDataSet processShowSchemaTemplates() {
+    ListDataSet listDataSet =
+        new ListDataSet(
+            Collections.singletonList(new PartialPath(COLUMN_SCHEMA_TEMPLATE, false)),
+            Collections.singletonList(TSDataType.TEXT));
+    Set<String> allTemplates = IoTDB.metaManager.getAllTemplates();
+    for (String templateName : allTemplates) {
+      RowRecord rowRecord = new RowRecord(0); // ignore timestamp
+      rowRecord.addField(Binary.valueOf(templateName), TSDataType.TEXT);
+      listDataSet.putRecord(rowRecord);
+    }
+    return listDataSet;
+  }
+
+  private QueryDataSet processShowNodesInSchemaTemplate(ShowNodesInTemplatePlan showPlan)
+      throws QueryProcessException {
+    ListDataSet listDataSet =
+        new ListDataSet(
+            Arrays.asList(
+                new PartialPath(COLUMN_CHILD_NODES, false),
+                new PartialPath(COLUMN_TIMESERIES_DATATYPE, false),
+                new PartialPath(COLUMN_TIMESERIES_ENCODING, false),
+                new PartialPath(COLUMN_TIMESERIES_COMPRESSION, false)),
+            Arrays.asList(TSDataType.TEXT, TSDataType.TEXT, TSDataType.TEXT, TSDataType.TEXT));
+    try {
+      List<Pair<String, IMeasurementSchema>> measurements =
+          IoTDB.metaManager.getSchemasInTemplate(showPlan.getTemplateName(), "");
+      for (Pair<String, IMeasurementSchema> measurement : measurements) {
+        RowRecord rowRecord = new RowRecord(0); // ignore timestamp
+        rowRecord.addField(Binary.valueOf(measurement.left), TSDataType.TEXT);
+
+        IMeasurementSchema measurementSchema = measurement.right;
+        rowRecord.addField(Binary.valueOf(measurementSchema.getType().toString()), TSDataType.TEXT);
+        rowRecord.addField(
+            Binary.valueOf(measurementSchema.getEncodingType().toString()), TSDataType.TEXT);
+        rowRecord.addField(
+            Binary.valueOf(measurementSchema.getCompressor().toString()), TSDataType.TEXT);
+        listDataSet.putRecord(rowRecord);
+      }
+    } catch (MetadataException e) {
+      throw new QueryProcessException(e);
+    }
+    return listDataSet;
+  }
+
+  private QueryDataSet processShowPathsUsingSchemaTemplate(ShowPathsUsingTemplatePlan showPlan)
+      throws QueryProcessException {
+    ListDataSet listDataSet =
+        new ListDataSet(
+            Collections.singletonList(new PartialPath(COLUMN_CHILD_PATHS, false)),
+            Collections.singletonList(TSDataType.TEXT));
+    try {
+      Set<String> paths = IoTDB.metaManager.getPathsUsingTemplate(showPlan.getTemplateName());
+      for (String path : paths) {
+        RowRecord rowRecord = new RowRecord(0); // ignore timestamp
+        rowRecord.addField(Binary.valueOf(path), TSDataType.TEXT);
+        listDataSet.putRecord(rowRecord);
+      }
+    } catch (MetadataException e) {
+      throw new QueryProcessException(e);
+    }
+    return listDataSet;
+  }
+
+  private QueryDataSet processShowPathsSetSchemaTemplate(ShowPathsSetTemplatePlan showPlan)
+      throws QueryProcessException {
+    ListDataSet listDataSet =
+        new ListDataSet(
+            Collections.singletonList(new PartialPath(COLUMN_CHILD_PATHS, false)),
+            Collections.singletonList(TSDataType.TEXT));
+    try {
+      Set<String> paths = IoTDB.metaManager.getPathsSetTemplate(showPlan.getTemplateName());
+      for (String path : paths) {
+        RowRecord rowRecord = new RowRecord(0); // ignore timestamp
+        rowRecord.addField(Binary.valueOf(path), TSDataType.TEXT);
+        listDataSet.putRecord(rowRecord);
+      }
+    } catch (MetadataException e) {
+      throw new QueryProcessException(e);
+    }
     return listDataSet;
   }
 
@@ -2077,34 +2183,30 @@ public class PlanExecutor implements IPlanExecutor {
     }
     List<PartialPath> headerList = new ArrayList<>();
     List<TSDataType> typeList = new ArrayList<>();
-    headerList.add(new PartialPath(COLUMN_ROLE, false));
-    headerList.add(new PartialPath(COLUMN_PRIVILEGE, false));
-    typeList.add(TSDataType.TEXT);
-    typeList.add(TSDataType.TEXT);
-    ListDataSet dataSet = new ListDataSet(headerList, typeList);
     int index = 0;
-    for (PathPrivilege pathPrivilege : user.getPrivilegeList()) {
-      if (path == null || AuthUtils.pathBelongsTo(path.getFullPath(), pathPrivilege.getPath())) {
+    if (IoTDBDescriptor.getInstance().getConfig().getAdminName().equals(userName)) {
+      headerList.add(new PartialPath(COLUMN_PRIVILEGE, false));
+      typeList.add(TSDataType.TEXT);
+      ListDataSet dataSet = new ListDataSet(headerList, typeList);
+      for (PrivilegeType privilegeType : PrivilegeType.values()) {
         RowRecord record = new RowRecord(index++);
-        Field roleF = new Field(TSDataType.TEXT);
-        roleF.setBinaryV(new Binary(""));
-        record.addField(roleF);
         Field privilegeF = new Field(TSDataType.TEXT);
-        privilegeF.setBinaryV(new Binary(pathPrivilege.toString()));
+        privilegeF.setBinaryV(new Binary(privilegeType.toString()));
         record.addField(privilegeF);
         dataSet.putRecord(record);
       }
-    }
-    for (String roleN : user.getRoleList()) {
-      Role role = authorizer.getRole(roleN);
-      if (role == null) {
-        continue;
-      }
-      for (PathPrivilege pathPrivilege : role.getPrivilegeList()) {
+      return dataSet;
+    } else {
+      headerList.add(new PartialPath(COLUMN_ROLE, false));
+      headerList.add(new PartialPath(COLUMN_PRIVILEGE, false));
+      typeList.add(TSDataType.TEXT);
+      typeList.add(TSDataType.TEXT);
+      ListDataSet dataSet = new ListDataSet(headerList, typeList);
+      for (PathPrivilege pathPrivilege : user.getPrivilegeList()) {
         if (path == null || AuthUtils.pathBelongsTo(path.getFullPath(), pathPrivilege.getPath())) {
           RowRecord record = new RowRecord(index++);
           Field roleF = new Field(TSDataType.TEXT);
-          roleF.setBinaryV(new Binary(roleN));
+          roleF.setBinaryV(new Binary(""));
           record.addField(roleF);
           Field privilegeF = new Field(TSDataType.TEXT);
           privilegeF.setBinaryV(new Binary(pathPrivilege.toString()));
@@ -2112,13 +2214,40 @@ public class PlanExecutor implements IPlanExecutor {
           dataSet.putRecord(record);
         }
       }
+      for (String roleN : user.getRoleList()) {
+        Role role = authorizer.getRole(roleN);
+        if (role == null) {
+          continue;
+        }
+        for (PathPrivilege pathPrivilege : role.getPrivilegeList()) {
+          if (path == null
+              || AuthUtils.pathBelongsTo(path.getFullPath(), pathPrivilege.getPath())) {
+            RowRecord record = new RowRecord(index++);
+            Field roleF = new Field(TSDataType.TEXT);
+            roleF.setBinaryV(new Binary(roleN));
+            record.addField(roleF);
+            Field privilegeF = new Field(TSDataType.TEXT);
+            privilegeF.setBinaryV(new Binary(pathPrivilege.toString()));
+            record.addField(privilegeF);
+            dataSet.putRecord(record);
+          }
+        }
+      }
+      return dataSet;
     }
-    return dataSet;
   }
 
   @SuppressWarnings("unused") // for the distributed version
   protected void loadConfiguration(LoadConfigurationPlan plan) throws QueryProcessException {
     IoTDBDescriptor.getInstance().loadHotModifiedProps();
+  }
+
+  private boolean processShowQueryResource() {
+    DEBUG_LOGGER.info(String.format("**********%s**********\n\n", new Date()));
+    FileReaderManager.getInstance().writeFileReferenceInfo();
+    QueryResourceManager.getInstance().writeQueryFileInfo();
+    DEBUG_LOGGER.info("\n****************************************************\n\n");
+    return true;
   }
 
   private QueryDataSet processShowQueryProcesslist() {

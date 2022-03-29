@@ -20,12 +20,11 @@ package org.apache.iotdb.db.metadata;
 
 import org.apache.iotdb.db.concurrent.IoTDBThreadPoolFactory;
 import org.apache.iotdb.db.conf.IoTDBConfig;
+import org.apache.iotdb.db.conf.IoTDBConstant;
 import org.apache.iotdb.db.conf.IoTDBDescriptor;
 import org.apache.iotdb.db.engine.StorageEngine;
-import org.apache.iotdb.db.engine.cq.ContinuousQueryService;
 import org.apache.iotdb.db.engine.fileSystem.SystemFileFactory;
 import org.apache.iotdb.db.engine.trigger.executor.TriggerEngine;
-import org.apache.iotdb.db.exception.ContinuousQueryException;
 import org.apache.iotdb.db.exception.metadata.AliasAlreadyExistException;
 import org.apache.iotdb.db.exception.metadata.DataTypeMismatchException;
 import org.apache.iotdb.db.exception.metadata.DeleteFailedException;
@@ -66,12 +65,10 @@ import org.apache.iotdb.db.qp.physical.sys.AutoCreateDeviceMNodePlan;
 import org.apache.iotdb.db.qp.physical.sys.ChangeAliasPlan;
 import org.apache.iotdb.db.qp.physical.sys.ChangeTagOffsetPlan;
 import org.apache.iotdb.db.qp.physical.sys.CreateAlignedTimeSeriesPlan;
-import org.apache.iotdb.db.qp.physical.sys.CreateContinuousQueryPlan;
 import org.apache.iotdb.db.qp.physical.sys.CreateTemplatePlan;
 import org.apache.iotdb.db.qp.physical.sys.CreateTimeSeriesPlan;
 import org.apache.iotdb.db.qp.physical.sys.DeleteStorageGroupPlan;
 import org.apache.iotdb.db.qp.physical.sys.DeleteTimeSeriesPlan;
-import org.apache.iotdb.db.qp.physical.sys.DropContinuousQueryPlan;
 import org.apache.iotdb.db.qp.physical.sys.DropTemplatePlan;
 import org.apache.iotdb.db.qp.physical.sys.PruneTemplatePlan;
 import org.apache.iotdb.db.qp.physical.sys.SetStorageGroupPlan;
@@ -92,6 +89,7 @@ import org.apache.iotdb.db.utils.SchemaUtils;
 import org.apache.iotdb.db.utils.TestOnly;
 import org.apache.iotdb.db.utils.TypeInferenceUtils;
 import org.apache.iotdb.metrics.config.MetricConfigDescriptor;
+import org.apache.iotdb.metrics.utils.MetricLevel;
 import org.apache.iotdb.tsfile.common.conf.TSFileDescriptor;
 import org.apache.iotdb.tsfile.file.metadata.enums.CompressionType;
 import org.apache.iotdb.tsfile.file.metadata.enums.TSDataType;
@@ -260,6 +258,17 @@ public class MManager {
           MTREE_SNAPSHOT_THREAD_CHECK_TIME,
           TimeUnit.SECONDS);
     }
+
+    if (config.getSyncMlogPeriodInMs() != 0) {
+      timedForceMLogThread =
+          IoTDBThreadPoolFactory.newSingleThreadScheduledExecutor("timedForceMLogThread");
+
+      timedForceMLogThread.scheduleAtFixedRate(
+          this::forceMlog,
+          config.getSyncMlogPeriodInMs(),
+          config.getSyncMlogPeriodInMs(),
+          TimeUnit.MILLISECONDS);
+    }
   }
 
   // Because the writer will be used later and should not be closed here.
@@ -294,6 +303,7 @@ public class MManager {
           .getMetricManager()
           .getOrCreateAutoGauge(
               Metric.MEM.toString(),
+              MetricLevel.IMPORTANT,
               mtree,
               RamUsageEstimator::sizeOf,
               Tag.NAME.toString(),
@@ -306,6 +316,7 @@ public class MManager {
         .getMetricManager()
         .getOrCreateAutoGauge(
             Metric.QUANTITY.toString(),
+            MetricLevel.IMPORTANT,
             totalSeriesNumber,
             AtomicLong::get,
             Tag.NAME.toString(),
@@ -315,6 +326,7 @@ public class MManager {
         .getMetricManager()
         .getOrCreateAutoGauge(
             Metric.QUANTITY.toString(),
+            MetricLevel.IMPORTANT,
             mtree,
             tree -> {
               try {
@@ -331,6 +343,7 @@ public class MManager {
         .getMetricManager()
         .getOrCreateAutoGauge(
             Metric.QUANTITY.toString(),
+            MetricLevel.IMPORTANT,
             mtree,
             tree -> {
               try {
@@ -342,6 +355,14 @@ public class MManager {
             },
             Tag.NAME.toString(),
             "storageGroup");
+  }
+
+  private void forceMlog() {
+    try {
+      logWriter.force();
+    } catch (IOException e) {
+      logger.error("Cannot force mlog to the storage device", e);
+    }
   }
 
   /** @return line number of the logFile */
@@ -511,43 +532,9 @@ public class MManager {
         UnsetTemplatePlan unsetTemplatePlan = (UnsetTemplatePlan) plan;
         unsetSchemaTemplate(unsetTemplatePlan);
         break;
-      case CREATE_CONTINUOUS_QUERY:
-        CreateContinuousQueryPlan createContinuousQueryPlan = (CreateContinuousQueryPlan) plan;
-        createContinuousQuery(createContinuousQueryPlan);
-        break;
-      case DROP_CONTINUOUS_QUERY:
-        DropContinuousQueryPlan dropContinuousQueryPlan = (DropContinuousQueryPlan) plan;
-        dropContinuousQuery(dropContinuousQueryPlan);
-        break;
       default:
         logger.error("Unrecognizable command {}", plan.getOperatorType());
     }
-  }
-  // endregion
-
-  // region Interfaces for CQ
-  public void createContinuousQuery(CreateContinuousQueryPlan plan) throws MetadataException {
-    try {
-      ContinuousQueryService.getInstance().register(plan, false);
-    } catch (ContinuousQueryException e) {
-      throw new MetadataException(e);
-    }
-  }
-
-  public void dropContinuousQuery(DropContinuousQueryPlan plan) throws MetadataException {
-    try {
-      ContinuousQueryService.getInstance().deregister(plan, false);
-    } catch (ContinuousQueryException e) {
-      throw new MetadataException(e);
-    }
-  }
-
-  public void writeCreateContinuousQueryLog(CreateContinuousQueryPlan plan) throws IOException {
-    logWriter.createContinuousQuery(plan);
-  }
-
-  public void writeDropContinuousQueryLog(DropContinuousQueryPlan plan) throws IOException {
-    logWriter.dropContinuousQuery(plan);
   }
   // endregion
 
@@ -587,8 +574,9 @@ public class MManager {
 
       // update tag index
 
-      if (offset != -1) {
-        // offset != -1 means the timeseries has already been created and now system is recovering
+      if (offset != -1 && isRecovering) {
+        // the timeseries has already been created and now system is recovering, using the tag info
+        // in tagFile to recover index directly
         tagManager.recoverIndex(offset, leafMNode);
       } else if (plan.getTags() != null) {
         // tag key, tag value
@@ -618,8 +606,8 @@ public class MManager {
       throw new MetadataException(e);
     }
 
-    // update id table
-    if (config.isEnableIDTable()) {
+    // update id table if not in recovering or disable id table log file
+    if (config.isEnableIDTable() && (!isRecovering || !config.isEnableIDTableLogFile())) {
       IDTable idTable = IDTableManager.getInstance().getIDTable(plan.getPath().getDevicePath());
       idTable.createTimeseries(plan);
     }
@@ -713,8 +701,8 @@ public class MManager {
       throw new MetadataException(e);
     }
 
-    // update id table
-    if (config.isEnableIDTable()) {
+    // update id table if not in recovering or disable id table log file
+    if (config.isEnableIDTable() && (!isRecovering || !config.isEnableIDTableLogFile())) {
       IDTable idTable = IDTableManager.getInstance().getIDTable(plan.getPrefixPath());
       idTable.createAlignedTimeseries(plan);
     }
@@ -946,7 +934,7 @@ public class MManager {
         }
       }
       node = mtree.getDeviceNodeWithAutoCreating(path, sgLevel);
-      if (!(node.isStorageGroup())) {
+      if (!(node.isStorageGroup()) && !isRecovering) {
         logWriter.autoCreateDeviceMNode(new AutoCreateDeviceMNodePlan(node.getPartialPath()));
       }
       return node;
@@ -958,7 +946,7 @@ public class MManager {
       }
       // ignore set storage group concurrently
       node = mtree.getDeviceNodeWithAutoCreating(path, sgLevel);
-      if (!(node.isStorageGroup())) {
+      if (!(node.isStorageGroup()) && !isRecovering) {
         logWriter.autoCreateDeviceMNode(new AutoCreateDeviceMNodePlan(node.getPartialPath()));
       }
       return node;
@@ -1223,22 +1211,12 @@ public class MManager {
    * to match prefix path. All timeseries start with the matched prefix path will be collected.
    *
    * @param pathPattern the pattern of the target devices.
-   * @param isPrefixMatch if true, the path pattern is used to match prefix path
+   * @param isPrefixMatch if true, the path pattern is used to match prefix path.
    * @return A HashSet instance which stores devices paths matching the given path pattern.
    */
   public Set<PartialPath> getMatchedDevices(PartialPath pathPattern, boolean isPrefixMatch)
       throws MetadataException {
     return mtree.getDevices(pathPattern, isPrefixMatch);
-  }
-
-  /**
-   * Get all device paths matching the path pattern.
-   *
-   * @param pathPattern the pattern of the target devices.
-   * @return A HashSet instance which stores devices paths matching the given path pattern.
-   */
-  public Set<PartialPath> getMatchedDevices(PartialPath pathPattern) throws MetadataException {
-    return getMatchedDevices(pathPattern, false);
   }
 
   /**
@@ -2184,8 +2162,19 @@ public class MManager {
   }
 
   public void appendSchemaTemplate(AppendTemplatePlan plan) throws MetadataException {
-    try {
+    if (templateManager.getTemplate(plan.getName()) == null) {
+      throw new MetadataException(String.format("Template [%s] does not exist.", plan.getName()));
+    }
 
+    if (!mtree.isTemplateAppendable(
+        templateManager.getTemplate(plan.getName()), plan.getMeasurements())) {
+      throw new MetadataException(
+          String.format(
+              "Template [%s] cannot be appended for overlapping of new measurement and MTree",
+              plan.getName()));
+    }
+
+    try {
       List<TSDataType> dataTypes = plan.getDataTypes();
       List<TSEncoding> encodings = plan.getEncodings();
       for (int idx = 0; idx < dataTypes.size(); idx++) {
@@ -2203,6 +2192,15 @@ public class MManager {
   }
 
   public void pruneSchemaTemplate(PruneTemplatePlan plan) throws MetadataException {
+    if (templateManager.getTemplate(plan.getName()) == null) {
+      throw new MetadataException(String.format("Template [%s] does not exist.", plan.getName()));
+    }
+
+    if (templateManager.getTemplate(plan.getName()).getRelatedStorageGroup().size() > 0) {
+      throw new MetadataException(
+          String.format(
+              "Template [%s] cannot be pruned since had been set before.", plan.getName()));
+    }
     try {
       templateManager.pruneSchemaTemplate(plan);
       // write wal
@@ -2242,6 +2240,18 @@ public class MManager {
     return templateManager.getTemplate(templateName).getMeasurementsUnderPath(path);
   }
 
+  public List<Pair<String, IMeasurementSchema>> getSchemasInTemplate(
+      String templateName, String path) throws MetadataException {
+    Set<Map.Entry<String, IMeasurementSchema>> rawSchemas =
+        templateManager.getTemplate(templateName).getSchemaMap().entrySet();
+    return rawSchemas.stream()
+        .filter(e -> e.getKey().startsWith(path))
+        .collect(
+            ArrayList::new,
+            (res, elem) -> res.add(new Pair<>(elem.getKey(), elem.getValue())),
+            ArrayList::addAll);
+  }
+
   public Set<String> getAllTemplates() {
     return templateManager.getAllTemplateName();
   }
@@ -2253,11 +2263,15 @@ public class MManager {
    * @return paths set
    */
   public Set<String> getPathsSetTemplate(String templateName) throws MetadataException {
-    return new HashSet<>(mtree.getPathsSetOnTemplate(templateName));
+    return templateName.equals(IoTDBConstant.ONE_LEVEL_PATH_WILDCARD)
+        ? new HashSet<>(mtree.getPathsSetOnTemplate(null))
+        : new HashSet<>(mtree.getPathsSetOnTemplate(templateManager.getTemplate(templateName)));
   }
 
   public Set<String> getPathsUsingTemplate(String templateName) throws MetadataException {
-    return new HashSet<>(mtree.getPathsUsingTemplate(templateName));
+    return templateName.equals(IoTDBConstant.ONE_LEVEL_PATH_WILDCARD)
+        ? new HashSet<>(mtree.getPathsUsingTemplate(null))
+        : new HashSet<>(mtree.getPathsUsingTemplate(templateManager.getTemplate(templateName)));
   }
 
   public void dropSchemaTemplate(DropTemplatePlan plan) throws MetadataException {
@@ -2268,7 +2282,7 @@ public class MManager {
         throw new UndefinedTemplateException(templateName);
       }
 
-      if (mtree.isTemplateSetOnMTree(templateName)) {
+      if (templateManager.getTemplate(plan.getName()).getRelatedStorageGroup().size() > 0) {
         throw new MetadataException(
             String.format(
                 "Template [%s] has been set on MTree, cannot be dropped now.", templateName));
@@ -2294,9 +2308,11 @@ public class MManager {
 
       IMNode node = getDeviceNodeWithAutoCreate(path);
 
-      templateManager.checkIsTemplateAndMNodeCompatible(template, node);
+      templateManager.checkTemplateCompatible(template, node);
 
       node.setSchemaTemplate(template);
+
+      template.markStorageGroup(node);
 
       // write wal
       if (!isRecovering) {
@@ -2321,6 +2337,7 @@ public class MManager {
       }
       mtree.checkTemplateInUseOnLowerNode(node);
       node.setSchemaTemplate(null);
+      templateManager.getTemplate(plan.getTemplateName()).unmarkStorageGroup(node);
       // write wal
       if (!isRecovering) {
         logWriter.unsetSchemaTemplate(plan);
@@ -2331,6 +2348,13 @@ public class MManager {
   }
 
   public void setUsingSchemaTemplate(ActivateTemplatePlan plan) throws MetadataException {
+    // check whether any template has been set on designated path
+    if (mtree.getTemplateOnPath(plan.getPrefixPath()) == null) {
+      throw new MetadataException(
+          String.format(
+              "Path [%s] has not been set any template.", plan.getPrefixPath().toString()));
+    }
+
     try {
       setUsingSchemaTemplate(getDeviceNode(plan.getPrefixPath()));
     } catch (PathNotExistException e) {
@@ -2346,6 +2370,12 @@ public class MManager {
   }
 
   IMNode setUsingSchemaTemplate(IMNode node) throws MetadataException {
+    // check whether any template has been set on designated path
+    if (node.getUpperTemplate() == null) {
+      throw new MetadataException(
+          String.format("Path [%s] has not been set any template.", node.getFullPath()));
+    }
+
     // this operation may change mtree structure and node type
     // invoke mnode.setUseTemplate is invalid
 
