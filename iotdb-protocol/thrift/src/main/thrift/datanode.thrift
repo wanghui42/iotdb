@@ -63,7 +63,7 @@ struct TGetDataBlockRequest {
   1: required TFragmentInstanceId sourceFragmentInstanceId
   2: required i32 startSequenceId
   3: required i32 endSequenceId
-  // index of upstream SinkChannel
+  // Index of upstream SinkChannel
   4: required i32 index
 }
 
@@ -75,13 +75,13 @@ struct TAcknowledgeDataBlockEvent {
   1: required TFragmentInstanceId sourceFragmentInstanceId
   2: required i32 startSequenceId
   3: required i32 endSequenceId
-  // index of upstream SinkChannel
+  // Index of upstream SinkChannel
   4: required i32 index
 }
 
 struct TCloseSinkChannelEvent {
   1: required TFragmentInstanceId sourceFragmentInstanceId
-  // index of upstream SinkChannel
+  // Index of upstream SinkChannel
   2: required i32 index
 }
 
@@ -141,7 +141,7 @@ struct TFetchFragmentInstanceInfoReq {
   1: required TFragmentInstanceId fragmentInstanceId
 }
 
-// TODO: need to supply more fields according to implementation
+// TODO: Need to supply more fields according to implementation
 struct TFragmentInstanceInfoResp {
   1: required string state
   2: optional i64 endTime
@@ -265,6 +265,14 @@ struct THeartbeatResp {
   10: optional list<binary> pipeMetaList
 }
 
+struct TPipeHeartbeatReq {
+  1: required i64 heartbeatId
+}
+
+struct TPipeHeartbeatResp {
+  1: required list<binary> pipeMetaList
+}
+
 enum TSchemaLimitLevel{
     DEVICE,
     TIMESERIES
@@ -385,6 +393,17 @@ struct TCheckTimeSeriesExistenceResp{
 
 struct TPushPipeMetaReq {
   1: required list<binary> pipeMetas
+}
+
+struct TPushPipeMetaResp {
+  1: required common.TSStatus status
+  2: optional list<TPushPipeMetaRespExceptionMessage> exceptionMessages
+}
+
+struct TPushPipeMetaRespExceptionMessage {
+  1: required string pipeName
+  2: required string message
+  3: required i64 timeStamp
 }
 
 struct TConstructViewSchemaBlackListReq{
@@ -755,7 +774,7 @@ service IDataNodeRPCService {
   TFetchSchemaBlackListResp fetchSchemaBlackList(TFetchSchemaBlackListReq req)
 
   /**
-   * Config node inform this dataNode to execute a distribution data deleion mpp task
+   * Config node inform this dataNode to execute a distribution data deleion queryengine task
    */
   common.TSStatus deleteDataForDeleteSchema(TDeleteDataForDeleteSchemaReq req)
 
@@ -795,7 +814,12 @@ service IDataNodeRPCService {
  /**
   * Send pipeMetas to DataNodes, for synchronization
   */
-  common.TSStatus pushPipeMeta(TPushPipeMetaReq req)
+  TPushPipeMetaResp pushPipeMeta(TPushPipeMetaReq req)
+
+  /**
+  * ConfigNode will ask DataNode for pipe meta in every few seconds
+  **/
+  TPipeHeartbeatResp pipeHeartbeat(TPipeHeartbeatReq req)
 
  /**
   * Execute CQ on DataNode

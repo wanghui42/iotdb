@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.apache.iotdb.it.env.cluster;
 
 import org.apache.iotdb.itbase.env.CommonConfig;
@@ -225,6 +226,13 @@ public class MppSharedCommonConfig implements CommonConfig {
   public CommonConfig setTimePartitionInterval(long timePartitionInterval) {
     cnConfig.setTimePartitionInterval(timePartitionInterval);
     dnConfig.setTimePartitionInterval(timePartitionInterval);
+    return this;
+  }
+
+  @Override
+  public CommonConfig setTimestampPrecision(String timestampPrecision) {
+    cnConfig.setTimestampPrecision(timestampPrecision);
+    dnConfig.setTimestampPrecision(timestampPrecision);
     return this;
   }
 

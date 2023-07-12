@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+
 package org.apache.iotdb.itbase.env;
 
 /** This interface is used to handle properties in iotdb-common.properties. */
@@ -76,6 +77,8 @@ public interface CommonConfig {
   CommonConfig setDataReplicationFactor(int dataReplicationFactor);
 
   CommonConfig setTimePartitionInterval(long timePartitionInterval);
+
+  CommonConfig setTimestampPrecision(String timestampPrecision);
 
   CommonConfig setConfigNodeRatisSnapshotTriggerThreshold(int ratisSnapshotTriggerThreshold);
 
