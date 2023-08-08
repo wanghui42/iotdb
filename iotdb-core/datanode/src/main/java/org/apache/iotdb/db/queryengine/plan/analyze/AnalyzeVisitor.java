@@ -349,7 +349,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
     try {
       logger.debug("[StartFetchSchema]");
       if (queryStatement.isGroupByTag()) {
-        schemaTree = schemaFetcher.fetchSchemaWithTags(patternTree);
+        schemaTree = schemaFetcher.fetchSchemaWithTags(patternTree, context);
       } else {
         schemaTree = schemaFetcher.fetchSchema(patternTree, context);
       }
@@ -484,7 +484,9 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       throw new SemanticException(e);
     }
     analysis.setUseLogicalView(useLogicalView);
-    if (useLogicalView && ((QueryStatement) analysis.getStatement()).isGroupByTag()) {
+    if (useLogicalView
+        && analysis.getStatement() instanceof QueryStatement
+        && (((QueryStatement) analysis.getStatement()).isGroupByTag())) {
       throw new SemanticException("Views cannot be used in GROUP BY TAGS query yet.");
     }
 
@@ -1218,6 +1220,10 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
             ExpressionAnalyzer.normalizeExpression(
                 analyzeWhereSplitByDevice(queryStatement, devicePath, schemaTree));
       } catch (MeasurementNotExistException e) {
+        logger.warn(
+            "Meets MeasurementNotExistException in analyzeDeviceToWhere when executing align by device, "
+                + "error msg: {}",
+            e.getMessage());
         deviceIterator.remove();
         continue;
       }
@@ -1933,25 +1939,39 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
     IntoPathDescriptor intoPathDescriptor = new IntoPathDescriptor();
     PathPatternTree targetPathTree = new PathPatternTree();
     IntoComponent.IntoPathIterator intoPathIterator = intoComponent.getIntoPathIterator();
-    for (Expression sourceColumn : sourceColumns) {
+    for (Pair<Expression, String> pair : outputExpressions) {
+      Expression sourceExpression = pair.left;
+      String viewPath = pair.right;
       PartialPath deviceTemplate = intoPathIterator.getDeviceTemplate();
       String measurementTemplate = intoPathIterator.getMeasurementTemplate();
       boolean isAlignedDevice = intoPathIterator.isAlignedDevice();
 
+      PartialPath sourcePath;
+      String sourceColumn = sourceExpression.getExpressionString();
       PartialPath targetPath;
-      if (sourceColumn instanceof TimeSeriesOperand) {
-        PartialPath sourcePath = ((TimeSeriesOperand) sourceColumn).getPath();
+      if (sourceExpression instanceof TimeSeriesOperand) {
+        if (viewPath != null) {
+          try {
+            sourcePath = new PartialPath(viewPath);
+          } catch (IllegalPathException e) {
+            throw new SemanticException(
+                String.format(
+                    "View path %s of source column %s is illegal path", viewPath, sourceColumn));
+          }
+        } else {
+          sourcePath = ((TimeSeriesOperand) sourceExpression).getPath();
+        }
         targetPath = constructTargetPath(sourcePath, deviceTemplate, measurementTemplate);
       } else {
         targetPath = deviceTemplate.concatNode(measurementTemplate);
       }
-      intoPathDescriptor.specifyTargetPath(sourceColumn.getExpressionString(), targetPath);
+      intoPathDescriptor.specifyTargetPath(sourceColumn, viewPath, targetPath);
       intoPathDescriptor.specifyDeviceAlignment(
           targetPath.getDevicePath().toString(), isAlignedDevice);
 
       targetPathTree.appendFullPath(targetPath);
       intoPathDescriptor.recordSourceColumnDataType(
-          sourceColumn.getExpressionString(), analysis.getType(sourceColumn));
+          sourceColumn, analysis.getType(sourceExpression));
 
       intoPathIterator.next();
     }
@@ -2275,7 +2295,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       InsertTabletStatement insertTabletStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
     Analysis analysis = new Analysis();
-    validateSchema(analysis, insertTabletStatement);
+    validateSchema(analysis, insertTabletStatement, context);
     InsertBaseStatement realStatement = removeLogicalView(analysis, insertTabletStatement);
     if (analysis.isFinishQueryAfterAnalyze()) {
       return analysis;
@@ -2300,12 +2320,11 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
   public Analysis visitInsertRow(InsertRowStatement insertRowStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
     Analysis analysis = new Analysis();
-    validateSchema(analysis, insertRowStatement);
+    validateSchema(analysis, insertRowStatement, context);
     InsertBaseStatement realInsertStatement = removeLogicalView(analysis, insertRowStatement);
     if (analysis.isFinishQueryAfterAnalyze()) {
       return analysis;
     }
-
     analysis.setStatement(realInsertStatement);
 
     if (realInsertStatement instanceof InsertRowStatement) {
@@ -2347,7 +2366,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       InsertRowsStatement insertRowsStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
     Analysis analysis = new Analysis();
-    validateSchema(analysis, insertRowsStatement);
+    validateSchema(analysis, insertRowsStatement, context);
     InsertRowsStatement realInsertRowsStatement =
         (InsertRowsStatement) removeLogicalView(analysis, insertRowsStatement);
     if (analysis.isFinishQueryAfterAnalyze()) {
@@ -2385,7 +2404,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       InsertMultiTabletsStatement insertMultiTabletsStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
     Analysis analysis = new Analysis();
-    validateSchema(analysis, insertMultiTabletsStatement);
+    validateSchema(analysis, insertMultiTabletsStatement, context);
     InsertMultiTabletsStatement realStatement =
         (InsertMultiTabletsStatement) removeLogicalView(analysis, insertMultiTabletsStatement);
     if (analysis.isFinishQueryAfterAnalyze()) {
@@ -2401,7 +2420,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       InsertRowsOfOneDeviceStatement insertRowsOfOneDeviceStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
     Analysis analysis = new Analysis();
-    validateSchema(analysis, insertRowsOfOneDeviceStatement);
+    validateSchema(analysis, insertRowsOfOneDeviceStatement, context);
     InsertBaseStatement realInsertStatement =
         removeLogicalView(analysis, insertRowsOfOneDeviceStatement);
     if (analysis.isFinishQueryAfterAnalyze()) {
@@ -2422,10 +2441,11 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
     }
   }
 
-  private void validateSchema(Analysis analysis, InsertBaseStatement insertStatement) {
+  private void validateSchema(
+      Analysis analysis, InsertBaseStatement insertStatement, MPPQueryContext context) {
     final long startTime = System.nanoTime();
     try {
-      SchemaValidator.validate(schemaFetcher, insertStatement);
+      SchemaValidator.validate(schemaFetcher, insertStatement, context);
     } catch (SemanticException e) {
       analysis.setFinishQueryAfterAnalyze(true);
       if (e.getCause() instanceof IoTDBException) {
@@ -2472,11 +2492,11 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
   public Analysis visitLoadFile(LoadTsFileStatement loadTsFileStatement, MPPQueryContext context) {
     context.setQueryType(QueryType.WRITE);
 
-    Map<String, Map<MeasurementSchema, File>> device2Schemas = new HashMap<>();
-    Map<String, Pair<Boolean, File>> device2IsAligned = new HashMap<>();
+    int tsfileNum = loadTsFileStatement.getTsFiles().size();
 
     // analyze tsfile metadata
-    for (File tsFile : loadTsFileStatement.getTsFiles()) {
+    for (int i = 0; i < tsfileNum; i++) {
+      File tsFile = loadTsFileStatement.getTsFiles().get(i);
       if (tsFile.length() == 0) {
         if (logger.isWarnEnabled()) {
           logger.warn(String.format("TsFile %s is empty.", tsFile.getPath()));
@@ -2487,9 +2507,7 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
                 tsFile.getPath()));
       }
       try {
-        TsFileResource resource =
-            analyzeTsFile(loadTsFileStatement, tsFile, device2Schemas, device2IsAligned);
-        loadTsFileStatement.addTsFileResource(resource);
+        analyzeTsFile(loadTsFileStatement, tsFile, context);
       } catch (IllegalArgumentException e) {
         logger.warn(
             String.format(
@@ -2502,13 +2520,21 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
         throw new SemanticException(
             String.format("Parse file %s to resource error", tsFile.getPath()));
       }
-      if (device2Schemas.size() > CONFIG.getMaxLoadingDeviceNumber()) {
-        autoCreateAndVerifySchema(loadTsFileStatement, device2Schemas, device2IsAligned);
+
+      if (i + 1 == tsfileNum) {
+        break;
       }
+
+      double progressPercentage = (i + 1) * 100.00 / tsfileNum;
+
+      logger.info(
+          "Load - Analysis Stage: {}/{} tsfiles have been analyzed, progress: {}%",
+          i + 1, tsfileNum, String.format("%.2f", progressPercentage));
     }
 
-    autoCreateAndVerifySchema(loadTsFileStatement, device2Schemas, device2IsAligned);
-
+    logger.info(
+        "Load - Analysis Stage:{}/{} tsfiles have been analyzed, progress: {}%",
+        tsfileNum, tsfileNum, "100.00");
     // load function will query data partition in scheduler
     Analysis analysis = new Analysis();
     analysis.setStatement(loadTsFileStatement);
@@ -2518,7 +2544,8 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
   private void autoCreateAndVerifySchema(
       LoadTsFileStatement loadTsFileStatement,
       Map<String, Map<MeasurementSchema, File>> device2Schemas,
-      Map<String, Pair<Boolean, File>> device2IsAligned)
+      Map<String, Pair<Boolean, File>> device2IsAligned,
+      MPPQueryContext context)
       throws SemanticException {
     if (device2Schemas.isEmpty()) {
       return;
@@ -2533,7 +2560,8 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       ISchemaTree schemaTree =
           autoCreateSchema(
               device2Schemas,
-              device2IsAligned); // schema fetcher will not auto create if config set
+              device2IsAligned,
+              context); // schema fetcher will not auto create if config set
       // isAutoCreateSchemaEnabled is false.
       if (loadTsFileStatement.isVerifySchema()) {
         verifySchema(schemaTree, device2Schemas, device2IsAligned);
@@ -2568,23 +2596,33 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
     return analysis;
   }
 
-  private TsFileResource analyzeTsFile(
-      LoadTsFileStatement statement,
-      File tsFile,
-      Map<String, Map<MeasurementSchema, File>> device2Schemas,
-      Map<String, Pair<Boolean, File>> device2IsAligned)
+  private void analyzeTsFile(LoadTsFileStatement statement, File tsFile, MPPQueryContext context)
       throws IOException, VerifyMetadataException {
     try (TsFileSequenceReader reader = new TsFileSequenceReader(tsFile.getAbsolutePath())) {
-      Map<String, List<TimeseriesMetadata>> device2Metadata = reader.getAllTimeseriesMetadata(true);
+      Map<String, List<TimeseriesMetadata>> device2Metadata = null;
 
       if (IoTDBDescriptor.getInstance().getConfig().isAutoCreateSchemaEnabled()
           || statement.isVerifySchema()) {
+        device2Metadata = reader.getAllTimeseriesMetadata(true);
+        Map<String, Map<MeasurementSchema, File>> device2Schemas = new HashMap<>();
+        Map<String, Pair<Boolean, File>> device2IsAligned = new HashMap<>();
         // construct schema
+        int deviceSize = device2Metadata.size();
+        int deviceCount = 0;
+        int timeseriesCount = 0;
+
         for (Map.Entry<String, List<TimeseriesMetadata>> entry : device2Metadata.entrySet()) {
           String device = entry.getKey();
+          deviceCount++;
           List<TimeseriesMetadata> timeseriesMetadataList = entry.getValue();
           boolean isAligned = false;
-          for (TimeseriesMetadata timeseriesMetadata : timeseriesMetadataList) {
+
+          int timeseriesMetadataListSize = timeseriesMetadataList.size();
+
+          for (int timeseriesIndex = 0;
+              timeseriesIndex < timeseriesMetadataListSize;
+              timeseriesIndex++) {
+            TimeseriesMetadata timeseriesMetadata = timeseriesMetadataList.get(timeseriesIndex);
             TSDataType dataType = timeseriesMetadata.getTsDataType();
             if (!dataType.equals(TSDataType.VECTOR)) {
               Pair<CompressionType, TSEncoding> pair =
@@ -2598,15 +2636,40 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
               device2Schemas
                   .computeIfAbsent(device, o -> new HashMap<>())
                   .put(measurementSchema, tsFile);
+              timeseriesCount++;
             } else {
               isAligned = true;
             }
+
+            // if the number of timeseries exceeds the threshold or loop to the last timeseries of
+            // the last device, we should create and verify schema , and clean the device2Schemas
+            // and device2IsAligned map.
+            if (timeseriesCount > CONFIG.getMaxLoadingTimeseriesNumber()
+                || (deviceCount == deviceSize
+                    && timeseriesIndex == timeseriesMetadataListSize - 1)) {
+
+              // check if the device has the same aligned definition in all tsfiles
+              if (hasDeviceSameDefinition(device2IsAligned, device, tsFile, isAligned)) {
+                autoCreateAndVerifySchema(statement, device2Schemas, device2IsAligned, context);
+                timeseriesCount = 0;
+              } else {
+                throw new VerifyMetadataException(
+                    String.format(
+                        "Device %s has different aligned definition in tsFile %s and other TsFile.",
+                        device, tsFile.getParentFile()));
+              }
+
+              logger.info(
+                  "Load - Create and Verify Schemas Stage: the device {} in tsfile {} have been created and verified.",
+                  entry.getKey(),
+                  tsFile.getName());
+            }
           }
-          boolean finalIsAligned = isAligned;
-          if (!device2IsAligned
-              .computeIfAbsent(device, o -> new Pair<>(finalIsAligned, tsFile))
-              .left
-              .equals(isAligned)) {
+
+          // when the number of devices does not exceed the threshold and it's not the last
+          // timeseries of the last device, we also need to check if the device has the same aligned
+          // definition in all tsfiles before going to the next device loop.
+          if (!hasDeviceSameDefinition(device2IsAligned, device, tsFile, isAligned)) {
             throw new VerifyMetadataException(
                 String.format(
                     "Device %s has different aligned definition in tsFile %s and other TsFile.",
@@ -2614,27 +2677,36 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
           }
         }
       }
-      return constructTsFileResource(tsFile, device2Metadata, reader);
+
+      // construct TsFileResource
+      TsFileResource tsFileResource = new TsFileResource(tsFile);
+
+      if (!tsFileResource.resourceFileExists()) {
+        if (device2Metadata == null) {
+          device2Metadata = reader.getAllTimeseriesMetadata(true);
+        }
+        FileLoaderUtils.updateTsFileResource(
+            device2Metadata, tsFileResource); // serialize it in LoadSingleTsFileNode
+        tsFileResource.updatePlanIndexes(reader.getMinPlanIndex());
+        tsFileResource.updatePlanIndexes(reader.getMaxPlanIndex());
+      } else {
+        tsFileResource.deserialize();
+      }
+
+      tsFileResource.setStatus(TsFileResourceStatus.NORMAL);
+      statement.addTsFileResource(tsFileResource);
     }
   }
 
-  private TsFileResource constructTsFileResource(
+  private boolean hasDeviceSameDefinition(
+      Map<String, Pair<Boolean, File>> device2IsAligned,
+      String device,
       File tsFile,
-      Map<String, List<TimeseriesMetadata>> device2Metadata,
-      TsFileSequenceReader reader)
-      throws IOException {
-    TsFileResource resource = new TsFileResource(tsFile);
-    if (!resource.resourceFileExists()) {
-      FileLoaderUtils.updateTsFileResource(
-          device2Metadata, resource); // serialize it in LoadSingleTsFileNode
-      resource.updatePlanIndexes(reader.getMinPlanIndex());
-      resource.updatePlanIndexes(reader.getMaxPlanIndex());
-    } else {
-      resource.deserialize();
-    }
-
-    resource.setStatus(TsFileResourceStatus.NORMAL);
-    return resource;
+      boolean isAligned) {
+    return device2IsAligned
+        .computeIfAbsent(device, o -> new Pair<>(isAligned, tsFile))
+        .left
+        .equals(isAligned);
   }
 
   private void autoCreateSg(int sgLevel, Map<String, Map<MeasurementSchema, File>> device2Schemas)
@@ -2659,11 +2731,13 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
       DatabaseSchemaStatement statement =
           new DatabaseSchemaStatement(DatabaseSchemaStatement.DatabaseSchemaStatementType.CREATE);
       statement.setDatabasePath(sgPath);
-      executeSetStorageGroupStatement(statement);
+      // load doesn't print exception log
+      statement.setEnablePrintExceptionLog(false);
+      executeSetDatabaseStatement(statement);
     }
   }
 
-  private void executeSetStorageGroupStatement(Statement statement) throws LoadFileException {
+  private void executeSetDatabaseStatement(Statement statement) throws LoadFileException {
     long queryId = SessionManager.getInstance().requestQueryId();
     ExecutionResult result =
         Coordinator.getInstance()
@@ -2686,7 +2760,8 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
 
   private ISchemaTree autoCreateSchema(
       Map<String, Map<MeasurementSchema, File>> device2Schemas,
-      Map<String, Pair<Boolean, File>> device2IsAligned)
+      Map<String, Pair<Boolean, File>> device2IsAligned,
+      MPPQueryContext context)
       throws IllegalPathException {
     List<PartialPath> deviceList = new ArrayList<>();
     List<String[]> measurementList = new ArrayList<>();
@@ -2725,7 +2800,8 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
         dataTypeList,
         encodingsList,
         compressionTypesList,
-        isAlignedList);
+        isAlignedList,
+        context);
   }
 
   private void verifyLoadingMeasurements(Map<String, Map<MeasurementSchema, File>> device2Schemas)
@@ -2793,19 +2869,19 @@ public class AnalyzeVisitor extends StatementVisitor<Analysis, MPPQueryContext> 
               originSchema.getType().name());
         }
         if (!tsFileSchema.getEncodingType().equals(originSchema.getEncodingType())) {
-          throw new VerifyMetadataException(
+          logger.warn(
+              "Encoding type not match, measurement: {}, TsFile: {}, TsFile encoding: {}, origin encoding: {}",
               measurementPath,
-              "Encoding",
-              tsFileSchema.getEncodingType().name(),
               entry.getValue().get(tsFileSchema).getPath(),
+              tsFileSchema.getEncodingType().name(),
               originSchema.getEncodingType().name());
         }
         if (!tsFileSchema.getCompressor().equals(originSchema.getCompressor())) {
-          throw new VerifyMetadataException(
+          logger.warn(
+              "Compression type not match, measurement: {}, TsFile: {}, TsFile compression: {}, origin compression: {}",
               measurementPath,
-              "Compress type",
-              tsFileSchema.getCompressor().name(),
               entry.getValue().get(tsFileSchema).getPath(),
+              tsFileSchema.getCompressor().name(),
               originSchema.getCompressor().name());
         }
       }
